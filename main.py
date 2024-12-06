@@ -2,13 +2,8 @@ import pyrogram
 from pyrogram import Client, filters
 from pyrogram.errors import UserAlreadyParticipant, InviteHashExpired
 from pyrogram.types import Message
-import logging
 import time
 import os
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 bot_token = os.environ.get("TOKEN", "") 
 api_hash = os.environ.get("HASH", "") 
@@ -18,48 +13,48 @@ bot = Client("mybot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 acc = Client("myacc", api_id=api_id, api_hash=api_hash, session_string=ss)
 
 @bot.on_message(filters.command(["start"]))
-async def account_login(bot: Client, message: Message):
-    await message.reply_text("**I am a clone bot. Send an invitation link to clone all messages from the chat.**")
+async def account_login(bot: Client, m: Message):
+    await m.reply_text("**I am a bot. Send an invitation link to clone messages automatically from a public channel.**")
 
 @bot.on_message(filters.text)
 async def save(client: pyrogram.client.Client, message: pyrogram.types.messages_and_media.message.Message):
-    if "https://t.me/+" in message.text or "https://t.me/joinchat/" in message.text:
+    # Joining public channels
+    if "https://t.me/" in message.text:
+        chat_username = message.text.split('/')[-1]  # Extract the channel username from the link
+
         try:
-            chat_link = message.text.strip()
             async with acc:
-                await acc.join_chat(chat_link)  # Join the chat using the invitation link
-                await message.reply_text("**Successfully joined the chat! Now cloning messages...**")
-                
-                # Get chat ID from the link
-                chat_id = chat_link.split('/')[-1]
-                await clone_all_messages(chat_id, message.chat.id)  # Clone messages to the target chat
-                
+                await acc.join_chat(chat_username)  # Join the channel
+            await bot.send_message(message.chat.id, "**Successfully joined the channel. Now cloning messages...**", reply_to_message_id=message.id)
+
+            # Clone all messages from the public channel
+            await clone_all_messages(chat_username, message.chat.id)
         except UserAlreadyParticipant:
-            await message.reply_text("**Already a participant in the chat.**")
-        except InviteHashExpired:
-            await message.reply_text("**The invitation link has expired.**")
+            await bot.send_message(message.chat.id, "**Already a participant in the channel.**", reply_to_message_id=message.id)
         except Exception as e:
-            logger.error(f"Error joining chat: {e}")
-            await message.reply_text("**An error occurred while trying to join the chat.**")
+            await bot.send_message(message.chat.id, f"**Error: {str(e)}**", reply_to_message_id=message.id)
 
-async def clone_all_messages(chat_id, target_chat_id):
+async def clone_all_messages(chat_username, destination_chat_id):
     async with acc:
-        try:
-            messages = await acc.get_chat_history(chat_id)  # Get all messages from the chat
-            async for msg in messages:
-                if msg.text:
-                    await bot.send_message(target_chat_id, msg.text)
-                elif msg.document:
-                    await bot.send_document(target_chat_id, msg.document.file_id, caption=msg.caption)
-                elif msg.video:
-                    await bot.send_video(target_chat_id, msg.video.file_id, caption=msg.caption)
-                elif msg.photo:
-                    await bot.send_photo(target_chat_id, msg.photo.file_id, caption=msg.caption)
-                time.sleep(1)  # Optional delay to avoid hitting rate limits
-            logger.info(f"Cloned messages from chat ID {chat_id} to target chat ID {target_chat_id}")
-        except Exception as e:
-            logger.error(f"Error cloning messages: {e}")
+        async for msg in acc.get_chat_history(chat_username):
+            # Check if the message contains text or other media types
+            if msg.text:
+                await bot.send_message(destination_chat_id, msg.text, entities=msg.entities)
+            elif msg.document:
+                await bot.send_document(destination_chat_id, msg.document.file_id, caption=msg.caption)
+            elif msg.video:
+                await bot.send_video(destination_chat_id, msg.video.file_id, caption=msg.caption)
+            elif msg.photo:
+                await bot.send_photo(destination_chat_id, msg.photo.file_id, caption=msg.caption)
+            elif msg.audio:
+                await bot.send_audio(destination_chat_id, msg.audio.file_id, caption=msg.caption)
+            elif msg.animation:
+                await bot.send_animation(destination_chat_id, msg.animation.file_id)
+            elif msg.voice:
+                await bot.send_voice(destination_chat_id, msg.voice.file_id, caption=msg.caption)
+            elif msg.sticker:
+                await bot.send_sticker(destination_chat_id, msg.sticker.file_id)
+            time.sleep(1)  # Optional delay to avoid hitting API limits
 
-# Run the bot
-if __name__ == "__main__":
-    bot.run()
+# Start the bot
+bot.run()
